@@ -1,0 +1,4 @@
+interface:
+  display_name: "Harness Run"
+  short_description: "Run or resume the guided coding harness"
+  default_prompt: "Use $harness-run to start or resume the guided coding harness workflow."

@@ -1,0 +1,32 @@
+# Agent config: only the harness hook settings and the harness skill and persona links are shared.
+# settings.local.json records per-machine tool permissions.
+.claude/*
+!.claude/settings.json
+!.claude/skills/
+.claude/skills/*
+!.claude/skills/harness-run
+!.claude/skills/spec
+!.claude/skills/planner
+!.claude/skills/maker
+!.claude/skills/checker
+!.claude/agents/
+.claude/agents/*
+!.claude/agents/spec-author.md
+!.claude/agents/planner.md
+!.claude/agents/maker.md
+!.claude/agents/checker.md
+
+# Harness plans and run artifacts
+/.plans/
+/planning/
+/runs/
+
+# Harness Python environment and caches
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+
+.env
+.DS_Store
