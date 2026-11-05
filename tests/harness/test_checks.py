@@ -74,14 +74,27 @@ def test_registry_is_exact_and_frozen() -> None:
         "eslint": ("pnpm", "exec", "eslint", "--no-warn-ignored"),
         "prettier": ("pnpm", "exec", "prettier", "--check", "--ignore-unknown"),
         "typecheck": ("pnpm", "typecheck"),
+        "red-tests": ("node_modules/.bin/vitest", "run"),
+        "browser": ("pnpm", "exec", "playwright", "test", "--project=smoke"),
+        "a11y": ("pnpm", "exec", "playwright", "test", "--project=a11y"),
     }
-    timeouts = {"ruff-lint": 120, "ruff-format": 120, "eslint": 180, "prettier": 120}
+    timeouts = {
+        "ruff-lint": 120,
+        "ruff-format": 120,
+        "eslint": 180,
+        "prettier": 120,
+        "browser": 600,
+        "a11y": 600,
+    }
     scopes = {
         "ruff-lint": "changed-python-files",
         "ruff-format": "changed-python-files",
         "eslint": "changed-web-files",
         "prettier": "changed-web-files",
         "typecheck": "repository",
+        "red-tests": "changed-test-files",
+        "browser": "repository",
+        "a11y": "repository",
     }
     for name, spec in APPROVED_CHECKS.items():
         assert isinstance(spec.command, tuple)
@@ -318,3 +331,162 @@ def test_required_tests_cannot_be_skipped() -> None:
 def test_skipped_command_has_no_execution_evidence() -> None:
     with pytest.raises(ValidationError, match="execution evidence"):
         ValidationCommandResult.model_validate({**SKIPPED, "stdout": "output"})
+
+
+def _typed_repo(tmp_path: Path, task_type: str) -> Path:
+    repo_root = tmp_path / "repo"
+    write_approved_plan(repo_root, {**plan_data(), "task_type": task_type})
+    return repo_root
+
+
+@pytest.mark.parametrize(
+    ("task_type", "added"),
+    [
+        ("feature", ("red-tests", "browser")),
+        ("bug-fix", ("red-tests",)),
+        ("ui-change", ("browser", "a11y")),
+        ("refactor", ()),
+        ("docs", ()),
+        ("other", ()),
+    ],
+)
+def test_task_type_adds_required_checks(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    task_type: str,
+    added: tuple[str, ...],
+) -> None:
+    repo_root = _typed_repo(tmp_path, task_type)
+    monkeypatch.setattr(runner, "_execute", _fake_run(set(), []))
+    monkeypatch.setattr(
+        runner, "_run_red_tests", lambda *_: ValidationCommandResult(**PASS)
+    )
+
+    record = run_tests(
+        repo_root, TASK_ID, 1, include_harness_tests=False, reference_digests={}
+    )
+
+    assert [(c.name, c.required) for c in record.checks] == [
+        ("ruff-lint", True),
+        ("eslint", True),
+        ("typecheck", True),
+        *((name, True) for name in added),
+    ]
+
+
+def test_plan_without_task_type_is_other_and_adds_no_checks() -> None:
+    plan = PlanDocument.model_validate(plan_data())
+    assert plan.task_type == "other"
+    assert plan.task_checks == ()
+
+
+def test_plan_rejects_a_check_that_its_task_type_requires() -> None:
+    data = {**plan_data([{"name": "browser"}]), "task_type": "ui-change"}
+    with pytest.raises(ValidationError, match="task type already requires"):
+        PlanDocument.model_validate(data)
+
+
+def _git_repo(tmp_path: Path) -> Path:
+    repo_root = _typed_repo(tmp_path, "bug-fix")
+    real_execute = runner._execute
+    for command in (
+        ("git", "init", "-q"),
+        ("git", "config", "user.email", "harness@example.com"),
+        ("git", "config", "user.name", "Harness"),
+        ("git", "commit", "-q", "--allow-empty", "-m", "baseline"),
+    ):
+        assert real_execute(repo_root, command, 30).status == "pass"
+    (repo_root / "src").mkdir()
+    (repo_root / "src" / "a.test.ts").write_text("new test\n", encoding="utf-8")
+    return repo_root
+
+
+def _red_run(
+    repo_root: Path, *, tests_fail: bool, seen: list[Path]
+) -> ValidationCommandResult:
+    spec = APPROVED_CHECKS["red-tests"]
+    real_execute = runner._execute
+
+    def run(cwd: Path, command: tuple[str, ...], timeout: int) -> ValidationCommandResult:
+        if command[0] == "git":
+            return real_execute(cwd, command, timeout)
+        seen.append(cwd)
+        assert command == (*spec.command, "src/a.test.ts")
+        assert (cwd / "src" / "a.test.ts").read_text(encoding="utf-8") == "new test\n"
+        return ValidationCommandResult(
+            status="fail" if tests_fail else "pass",
+            exit_code=1 if tests_fail else 0,
+            stdout=" Test Files  1 failed (1)\n"
+            if tests_fail
+            else " Test Files  1 passed (1)\n",
+            stderr="",
+            timed_out=False,
+        )
+
+    runner._execute = run
+    try:
+        return runner._run_red_tests(repo_root, spec, ("src/a.test.ts",))
+    finally:
+        runner._execute = real_execute
+
+
+def test_red_tests_pass_when_the_changed_tests_fail_on_a_clean_head(
+    tmp_path: Path,
+) -> None:
+    repo_root = _git_repo(tmp_path)
+    seen: list[Path] = []
+
+    result = _red_run(repo_root, tests_fail=True, seen=seen)
+
+    assert result.status == "pass"
+    assert "fail on HEAD (exit 1)" in result.stdout
+    assert len(seen) == 1 and seen[0] != repo_root
+    assert not seen[0].exists()
+
+
+def test_red_tests_fail_when_the_changed_tests_also_pass_without_the_change(
+    tmp_path: Path,
+) -> None:
+    repo_root = _git_repo(tmp_path)
+
+    result = _red_run(repo_root, tests_fail=False, seen=[])
+
+    assert result.status == "fail"
+    assert result.launch_error == "the changed tests also pass without the change"
+
+
+def test_red_tests_fail_when_no_test_file_changed(tmp_path: Path) -> None:
+    result = runner._run_red_tests(tmp_path, APPROVED_CHECKS["red-tests"], ())
+
+    assert result.status == "fail"
+    assert result.launch_error is not None
+    assert "add a test for the change" in result.launch_error
+
+
+def test_red_tests_fail_when_the_baseline_run_breaks_before_reporting_tests(
+    tmp_path: Path,
+) -> None:
+    repo_root = _git_repo(tmp_path)
+    real_execute = runner._execute
+
+    def run(cwd: Path, command: tuple[str, ...], timeout: int) -> ValidationCommandResult:
+        if command[0] == "git":
+            return real_execute(cwd, command, timeout)
+        return ValidationCommandResult(
+            status="fail",
+            exit_code=1,
+            stdout="",
+            stderr="Error: failed to load config",
+            timed_out=False,
+        )
+
+    runner._execute = run
+    try:
+        result = runner._run_red_tests(
+            repo_root, APPROVED_CHECKS["red-tests"], ("src/a.test.ts",)
+        )
+    finally:
+        runner._execute = real_execute
+
+    assert result.status == "fail"
+    assert result.launch_error == "the baseline run failed before reporting test results"

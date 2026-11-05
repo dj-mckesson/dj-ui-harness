@@ -152,10 +152,25 @@ put them in `checks`. `ruff-lint` checks added or changed Python files. `eslint`
 changed `.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`, and `.cjs` files. Each records `skipped` if the
 current validation round has no such file. `typecheck` runs `tsc --noEmit` on the whole repository.
 
-A plan may select `ruff-format` and `prettier`. Each checks the same files as its linter. Mark it
-`"required": true` (the default) when a failure must block completion, or
-`"required": false` when its result is only information. Omit `checks` when no optional check
-is needed.
+Set `task_type` to the kind of change. The supervisor adds required checks for it:
+
+| `task_type` | Added required checks |
+| --- | --- |
+| `feature` | `red-tests`, `browser` |
+| `bug-fix` | `red-tests` |
+| `ui-change` | `browser`, `a11y` |
+| `refactor`, `docs`, `other` | None |
+
+`red-tests` runs the added or changed `*.test.ts(x)` files on a clean checkout of `HEAD` and
+passes only when they fail there, so a `feature` or `bug-fix` plan must plan at least one test
+file. `browser` loads every static page in a real browser and fails on errors. `a11y` fails on
+serious WCAG violations. Name the test file in each test intent, and for UI work name every state
+the change must handle (loading, empty, error, and success).
+
+A plan may also select `ruff-format`, `prettier`, `red-tests`, `browser`, and `a11y` by name,
+except a check its task type already adds. Mark it `"required": true` (the default) when a failure
+must block completion, or `"required": false` when its result is only information. Omit `checks`
+when no optional check is needed.
 
 Add a `manual_reviews` entry for an acceptance criterion that tests cannot verify, for example a
 documentation change. Give it one line each for `inspect`, `how`, and `pass_if`. The checker
@@ -170,6 +185,7 @@ Write only `planning/<task_id>/plan.json` in this shape:
 {
   "schema_version": 1,
   "task_id": "<task_id>",
+  "task_type": "feature",
   "steps": [
     {
       "id": "STEP-01",
@@ -197,7 +213,7 @@ Write only `planning/<task_id>/plan.json` in this shape:
 }
 ```
 
-`checks` and `manual_reviews` are optional.
+`task_type` defaults to `other`. `checks` and `manual_reviews` are optional.
 
 ## Result states
 

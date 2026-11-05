@@ -72,7 +72,8 @@ it first and explain that the user must review the current revision again.
 
 - For a spec, summarize the goal, main behavior, important boundaries, and how success will be
   checked. Base each point on `SPEC.md`. Ask directly whether the user approves that specification.
-- For a plan, summarize the implementation steps, affected areas, and planned tests and checks.
+- For a plan, summarize the implementation steps, affected areas, the task type, and planned tests
+  and checks, including the required checks that the task type adds.
   Base each point on `PLAN.md` and `plan.json`. Show every `planned_files` and `planned_folders`
   path, and every `harness_paths` entry under **Protected files**. Explain why each protected path
   is planned. Ask the user to confirm that the task needs each one. Explain that each actual

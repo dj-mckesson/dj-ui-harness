@@ -46,13 +46,18 @@ def _make_repo(tmp_path: Path) -> Path:
     return repo_root
 
 
-def _event(target: Path | str, *, tool_name: str = "Edit") -> dict[str, object]:
-    return {
+def _event(
+    target: Path | str, *, tool_name: str = "Edit", agent_type: str | None = "maker"
+) -> dict[str, object]:
+    event: dict[str, object] = {
         "hook_event_name": "PreToolUse",
         "tool_name": tool_name,
         "tool_input": {"file_path": str(target), "runtime_metadata": "ignored"},
         "session_id": "ignored",
     }
+    if agent_type is not None:
+        event["agent_type"] = agent_type
+    return event
 
 
 @pytest.mark.parametrize("tool_name", ["Edit", "Write"])
@@ -90,7 +95,7 @@ def test_invalid_selected_task_data_is_denied(tmp_path: Path) -> None:
     repo_root = _make_repo(tmp_path)
     (repo_root / "runs" / "active.json").write_text("{not json", encoding="utf-8")
 
-    response = handle_event(repo_root, {"not": "a supported event"})
+    response = handle_event(repo_root, {"agent_type": "maker"})
 
     assert response is not None
     assert response.hookSpecificOutput.permissionDecision == "deny"
@@ -113,26 +118,31 @@ def test_cross_scope_target_is_denied(tmp_path: Path) -> None:
     "event_input",
     [
         {
+            "agent_type": "maker",
             "hook_event_name": "PreToolUse",
             "tool_name": "Edit",
             "tool_input": {"file_path": "src/module.py"},
         },
         {
+            "agent_type": "maker",
             "hook_event_name": "PreToolUse",
             "tool_name": "Edit",
             "tool_input": {},
         },
         {
+            "agent_type": "maker",
             "hook_event_name": "PreToolUse",
             "tool_name": "Edit",
             "tool_input": {"file_path": 7},
         },
         {
+            "agent_type": "maker",
             "hook_event_name": "PreToolUse",
             "tool_name": "Read",
             "tool_input": {"file_path": "/src/module.py"},
         },
         {
+            "agent_type": "maker",
             "hook_event_name": "PostToolUse",
             "tool_name": "Edit",
             "tool_input": {"file_path": "/src/module.py"},
@@ -239,3 +249,42 @@ def test_cli_malformed_json_denies_with_exit_zero(
     assert exit_code == 0
     response = DenyResponse.model_validate_json(output)
     assert "malformed JSON" in response.hookSpecificOutput.permissionDecisionReason
+
+
+@pytest.mark.parametrize("agent_type", [None, "Explore", "general-purpose"])
+def test_edits_outside_the_harness_roles_are_not_held_to_the_run_scope(
+    tmp_path: Path, agent_type: str | None
+) -> None:
+    repo_root = _make_repo(tmp_path)
+    target = repo_root / "README.md"
+
+    assert handle_event(repo_root, _event(target, agent_type=agent_type)) is None
+
+
+@pytest.mark.parametrize("agent_type", ["spec-author", "planner", "maker", "checker"])
+def test_every_harness_role_is_held_to_the_run_scope(
+    tmp_path: Path, agent_type: str
+) -> None:
+    repo_root = _make_repo(tmp_path)
+
+    response = handle_event(
+        repo_root, _event(repo_root / "README.md", agent_type=agent_type)
+    )
+
+    assert response is not None
+    assert "outside scope" in response.hookSpecificOutput.permissionDecisionReason
+
+
+def test_a_harness_role_cannot_edit_while_the_run_waits_for_a_person(
+    tmp_path: Path,
+) -> None:
+    repo_root = _make_repo(tmp_path)
+    state_path = repo_root / "runs" / TASK_ID / "state.json"
+    state = RunState.model_validate_json(state_path.read_text(encoding="utf-8"))
+    paused = state.model_copy(update={"pending_action": None})
+    state_path.write_text(paused.model_dump_json(), encoding="utf-8")
+
+    response = handle_event(repo_root, _event(repo_root / "src" / "module.py"))
+
+    assert response is not None
+    assert response.hookSpecificOutput.permissionDecision == "deny"

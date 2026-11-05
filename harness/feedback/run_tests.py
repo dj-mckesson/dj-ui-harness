@@ -1,8 +1,11 @@
 """Run the application tests for one candidate and save their result."""
 
 import os
+import re
+import shutil
 import signal
 import subprocess
+import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
@@ -12,8 +15,8 @@ from pydantic import StrictBool, validate_call
 from harness.contracts.checks import (
     APPROVED_CHECKS,
     MANDATORY_CHECKS,
-    PYTHON_SUFFIXES,
-    WEB_SUFFIXES,
+    SCOPE_SUFFIXES,
+    CheckSpec,
 )
 from harness.contracts.core import (
     CandidateAttempt,
@@ -45,6 +48,8 @@ HARNESS_TEST_COMMAND = (
     "tests/harness",
 )
 TEST_TIMEOUT_SECONDS = 300
+# Vitest's summary line when at least one test file failed, for example "Test Files  1 failed".
+_FAILED_TEST_FILES = re.compile(r"Test Files\s+\d+ failed")
 TEST_OUTPUT_LIMIT = 100_000
 _TRUNCATION_MARKER = "\n...[truncated]..."
 
@@ -153,17 +158,17 @@ def _run_checks(
     """Run mandatory checks, then the checks selected by the plan."""
 
     results = []
-    selected = [(name, True) for name in MANDATORY_CHECKS]
+    selected = [(name, True) for name in (*MANDATORY_CHECKS, *plan.task_checks)]
     selected.extend((check.name, check.required) for check in plan.checks)
     for name, required in selected:
         spec = APPROVED_CHECKS[name]
         if spec.scope == "repository":
             result = _execute(repo_root, spec.command, spec.timeout)
+        elif name == "red-tests":
+            changed = _changed_paths(reference_digests, SCOPE_SUFFIXES[spec.scope])
+            result = _run_red_tests(repo_root, spec, changed)
         else:
-            suffixes = (
-                PYTHON_SUFFIXES if spec.scope == "changed-python-files" else WEB_SUFFIXES
-            )
-            changed = _changed_paths(reference_digests, suffixes)
+            changed = _changed_paths(reference_digests, SCOPE_SUFFIXES[spec.scope])
             result = (
                 _execute(
                     repo_root, _command_with_paths(spec.command, changed), spec.timeout
@@ -181,6 +186,77 @@ def _run_checks(
             )
         )
     return tuple(results)
+
+
+def _run_red_tests(
+    repo_root: Path, spec: CheckSpec, paths: tuple[str, ...]
+) -> ValidationCommandResult:
+    """Run the changed test files on a clean checkout of ``HEAD`` and require a failure.
+
+    A test that also passes without the change proves nothing about the change. The baseline
+    is ``HEAD``, so uncommitted changes made before the run count as part of the change.
+
+    :return: ``pass`` when the tests fail on the baseline, otherwise ``fail``.
+    """
+
+    if not paths:
+        return _failed_check("no added or changed test files; add a test for the change")
+    with tempfile.TemporaryDirectory(prefix="harness-red-") as temporary:
+        baseline = Path(temporary) / "baseline"
+        added = _execute(
+            repo_root,
+            ("git", "worktree", "add", "--detach", "--quiet", str(baseline), "HEAD"),
+            120,
+        )
+        if added.status != "pass":
+            return added
+        try:
+            modules = repo_root / "node_modules"
+            if modules.is_dir():
+                (baseline / "node_modules").symlink_to(modules, target_is_directory=True)
+            for path in paths:
+                target = baseline / path
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(repo_root / path, target)
+            result = _execute(baseline, (*spec.command, *paths), spec.timeout)
+        finally:
+            _execute(
+                repo_root, ("git", "worktree", "remove", "--force", str(baseline)), 120
+            )
+    if result.launch_error is not None or result.timed_out:
+        return result
+    if result.status == "fail" and _FAILED_TEST_FILES.search(result.stdout) is None:
+        return _failed_check(
+            "the baseline run failed before reporting test results",
+            result.stdout,
+            result.stderr,
+        )
+    if result.status == "pass":
+        return _failed_check(
+            "the changed tests also pass without the change", result.stdout, result.stderr
+        )
+    return ValidationCommandResult(
+        status="pass",
+        exit_code=0,
+        stdout=f"The changed tests fail on HEAD (exit {result.exit_code}).\n{result.stdout}",
+        stderr=result.stderr,
+        timed_out=False,
+    )
+
+
+def _failed_check(
+    reason: str, stdout: str = "", stderr: str = ""
+) -> ValidationCommandResult:
+    """Build a failed result for a check whose outcome is not a command exit code."""
+
+    return ValidationCommandResult(
+        status="fail",
+        exit_code=None,
+        launch_error=reason,
+        stdout=stdout,
+        stderr=stderr,
+        timed_out=False,
+    )
 
 
 def _changed_paths(

@@ -1,0 +1,25 @@
+import { expect, test } from '@playwright/test';
+
+import { staticRoutes } from './routes';
+
+for (const route of staticRoutes()) {
+  test(`${route} renders without errors`, async ({ page, baseURL }) => {
+    const problems: string[] = [];
+    page.on('pageerror', (error) => problems.push(`page error: ${error.message}`));
+    page.on('console', (message) => {
+      if (message.type() === 'error') problems.push(`console error: ${message.text()}`);
+    });
+    page.on('response', (response) => {
+      if (response.url().startsWith(baseURL ?? '') && response.status() >= 400) {
+        problems.push(`HTTP ${response.status()}: ${response.url()}`);
+      }
+    });
+
+    const response = await page.goto(route, { waitUntil: 'networkidle' });
+
+    expect(response?.status(), `status of ${route}`).toBeLessThan(400);
+    await expect(page.locator('body')).toBeVisible();
+    await page.screenshot({ path: test.info().outputPath('page.png'), fullPage: true });
+    expect(problems, `problems on ${route}`).toEqual([]);
+  });
+}

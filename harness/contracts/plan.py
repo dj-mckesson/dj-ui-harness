@@ -5,7 +5,12 @@ from typing import Annotated, Literal
 
 from pydantic import Field, StringConstraints, model_validator
 
-from harness.contracts.checks import MANDATORY_CHECKS, CheckName
+from harness.contracts.checks import (
+    MANDATORY_CHECKS,
+    TASK_TYPE_CHECKS,
+    CheckName,
+    TaskType,
+)
 from harness.contracts.core import NonEmptyStr, RepoPath, StrictModel, TaskId
 
 RequirementId = Annotated[
@@ -158,6 +163,7 @@ class PlanDocument(StrictModel):
 
     schema_version: Literal[1]
     task_id: TaskId
+    task_type: TaskType = "other"
     steps: tuple[PlanStep, ...] = Field(min_length=1)
     test_intents: dict[AcceptanceCriterionId, NonEmptyStr] = Field(min_length=1)
     checks: tuple[PlanCheck, ...] = ()
@@ -175,8 +181,18 @@ class PlanDocument(StrictModel):
         _require_unique(tuple(check.name for check in self.checks), "plan check names")
         if any(check.name in MANDATORY_CHECKS for check in self.checks):
             raise ValueError("a plan cannot select a mandatory check")
+        if any(check.name in self.task_checks for check in self.checks):
+            raise ValueError(
+                f"the {self.task_type} task type already requires a selected check"
+            )
         _require_unique(
             tuple(review.acceptance_id for review in self.manual_reviews),
             "manual review acceptance IDs",
         )
         return self
+
+    @property
+    def task_checks(self) -> tuple[CheckName, ...]:
+        """Return the required checks that the task type adds."""
+
+        return TASK_TYPE_CHECKS[self.task_type]

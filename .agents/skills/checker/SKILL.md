@@ -119,6 +119,13 @@ deserialization, access control, destructive operations, secrets, private data, 
 other trust boundaries. Report reachable unsafe behavior with concrete evidence. Do not create a
 security finding from a hypothetical risk unsupported by the candidate or approved behavior.
 
+### UI states and accessibility
+
+- For a UI change, confirm that every state named in the plan (loading, empty, error, success) is
+  handled and tested by accessible role and name.
+- Check keyboard access, visible focus, labels for every control, and text alternatives for
+  images. The `a11y` check covers only what an automated scan can see.
+
 ### Scope and completeness
 
 - Confirm every changed behavior and file is necessary for the approved spec and plan.

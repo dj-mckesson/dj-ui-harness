@@ -21,6 +21,7 @@ EXACT_FILE_ROOTS = (
     ".codex",
     ".github",
     ".husky",
+    "e2e/harness",
 )
 EXACT_FILES = {
     ".ruff.toml",
@@ -33,6 +34,7 @@ EXACT_FILES = {
     "vitest.config.ts",
     "vitest.setup.ts",
     "next.config.ts",
+    "playwright.config.ts",
     ".prettierrc",
 }
 EXACT_NAMES = {"conftest.py", "CLAUDE.md", "AGENTS.md"}

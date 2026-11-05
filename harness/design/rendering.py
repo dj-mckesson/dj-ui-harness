@@ -82,6 +82,10 @@ def _render_plan_text(plan: PlanDocument) -> str:
     )
     lines.extend(f"- `{name}` — required" for name in MANDATORY_CHECKS)
     lines.extend(
+        f"- `{name}` — required for a `{plan.task_type}` task"
+        for name in plan.task_checks
+    )
+    lines.extend(
         f"- `{check.name}` — {'required' if check.required else 'report only'}"
         for check in plan.checks
     )

@@ -100,21 +100,36 @@ The harness adds no coding standard of its own. It enforces the standards in the
 
 ## Checks
 
-The tests, `ruff-lint`, `eslint`, and `typecheck` always run. A plan can select `ruff-format` and
-`prettier` by name. The harness owns all commands. A plan names no command.
+The tests, `ruff-lint`, `eslint`, and `typecheck` always run. The plan's `task_type` adds more
+required checks, and a plan can select the optional checks by name. The harness owns all commands.
+A plan names no command.
 
-| Name          | What it runs                                                                                   |
-| ------------- | ---------------------------------------------------------------------------------------------- |
-| `ruff-lint`   | Required. `ruff check` on added or changed Python files in the current round.                  |
-| `eslint`      | Required. `eslint` on added or changed `.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`, and `.cjs` files. |
-| `typecheck`   | Required. `pnpm typecheck` (`tsc --noEmit`) on the whole repository.                           |
-| `ruff-format` | Optional. `ruff format --check` on the same Python files as `ruff-lint`.                       |
-| `prettier`    | Optional. `prettier --check` on the same files as `eslint`.                                    |
+| Name          | What it runs                                                                                                    |
+| ------------- | --------------------------------------------------------------------------------------------------------------- |
+| `ruff-lint`   | Required. `ruff check` on added or changed Python files in the current round.                                   |
+| `eslint`      | Required. `eslint` on added or changed `.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`, and `.cjs` files.                  |
+| `typecheck`   | Required. `pnpm typecheck` (`tsc --noEmit`) on the whole repository.                                            |
+| `ruff-format` | Optional. `ruff format --check` on the same Python files as `ruff-lint`.                                        |
+| `prettier`    | Optional. `prettier --check` on the same files as `eslint`.                                                     |
+| `red-tests`   | Runs added or changed `*.test.ts(x)` files on a clean checkout of `HEAD`. Passes only if they fail there.       |
+| `browser`     | Builds the app and loads every static page in Chromium. Fails on an error, a console error, or an HTTP error.   |
+| `a11y`        | Builds the app and runs an axe WCAG 2.2 AA scan on every static page. Fails on a serious or critical violation. |
+
+| `task_type`                 | Required checks it adds       |
+| --------------------------- | ----------------------------- |
+| `feature`                   | `red-tests`, `browser`        |
+| `bug-fix`                   | `red-tests`                   |
+| `ui-change`                 | `browser`, `a11y`             |
+| `refactor`, `docs`, `other` | None. `other` is the default. |
+
+`red-tests` fails when no test file changed, and when the baseline run breaks before it reports
+test results, so a broken tool never counts as a failing test. `browser` and `a11y` use the
+`smoke` and `a11y` projects in `playwright.config.ts`, with the specs in `e2e/harness/`.
 
 Each check has a time limit, runs from the repository root, and saves bounded output.
-The supervisor always runs `ruff-lint`, `eslint`, and `typecheck` as required checks. Plans may
-select only `ruff-format` and `prettier`, and mark each `"required": true` (the default) or
-`"required": false`.
+The supervisor always runs `ruff-lint`, `eslint`, and `typecheck` as required checks, plus the
+checks the task type adds. Plans may select any other check, and mark each `"required": true`
+(the default) or `"required": false`.
 
 - A changed-file check with no matching added or changed file records `skipped`. A skipped
   required check satisfies validation. `typecheck` still runs on the whole repository.
@@ -237,7 +252,10 @@ These rules apply to every scope, including `.`:
 - Paths must stay inside the repository. The harness rejects `..` and any path that goes through a
   symbolic link.
 
-The edit hooks for Codex and Claude Code reject an edit outside the scopes before it happens.
+The edit hooks for Codex and Claude Code reject an edit outside the scopes before it happens. In
+Claude Code, the hook applies to the four harness role agents only, so other sessions can keep
+working during a run. The changed-file check still blocks a run if any edit lands outside its
+scopes.
 
 ## The changed-file check
 
@@ -294,7 +312,7 @@ active run, then the newest run.
 | The run is `blocked`                          | Read the reason in `status`. It names the exact paths. Fix the cause, then start a new run. A blocked run does not restart. |
 | `resume` says the file baseline is missing    | The run can not compare its changes any more. Start a new run.                                                              |
 | `submit` is refused                           | The result does not match the pending action. Nothing changed. Fix the result and submit it again.                          |
-| Edits are denied while a run is unfinished    | Answer the pending question or approval, or delete `runs/active.json` to release the edit lock.                             |
+| A role agent's edit is denied                 | The edit is outside the action's scopes, or the run is waiting for a person. Read the reason, then run `status`.            |
 
 ## Where things live
 

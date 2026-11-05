@@ -13,6 +13,10 @@ from harness import NonEmptyStr, RuntimeEventModel
 from harness.contracts.models import DenyResponse, HookOutput
 from harness.hooks.protect_paths import evaluate_paths, load_active_run_state
 
+# Claude Code sends the subagent name as ``agent_type``. Only the harness roles are held to a
+# run's write scopes. Other sessions may edit; the changed-file scan still reports their edits.
+HARNESS_AGENT_TYPES = frozenset({"spec-author", "planner", "maker", "checker"})
+
 
 class ClaudeToolInput(RuntimeEventModel):
     """Describe the file path included in a Claude Code edit event.
@@ -60,6 +64,8 @@ def handle_event(
     :return: ``None`` when allowed, or a denial response when the event is unsafe.
     """
 
+    if not _is_harness_agent(event_input):
+        return None
     try:
         run_state = load_active_run_state(Path(repo_root))
         if run_state is None:
@@ -76,6 +82,15 @@ def handle_event(
     if decision.decision == "deny":
         return _deny(decision.reason)
     return None
+
+
+def _is_harness_agent(event_input: object) -> bool:
+    """Return whether the event comes from one of the harness role agents."""
+
+    return (
+        isinstance(event_input, dict)
+        and event_input.get("agent_type") in HARNESS_AGENT_TYPES
+    )
 
 
 def _parser() -> argparse.ArgumentParser:

@@ -34,10 +34,13 @@ Do not assume context from another action or conversation.
   read-only.
 - Treat any rendered `PLAN.md` as a non-authoritative human view; never use it to add to, override,
   or reinterpret `approved-plan.json`.
-- Write tests needed by the approved test intents; do not weaken, skip, delete, or rewrite tests to
-  conceal incorrect behavior.
+- Write tests needed by the approved test intents before the code they cover; do not weaken, skip,
+  delete, or rewrite tests to conceal incorrect behavior.
+- Write each test so it fails without the change. For a `feature` or `bug-fix` task, the
+  `red-tests` check runs the changed test files on a clean `HEAD` and fails the candidate if they
+  pass there.
 - Do not run validation commands. After checker review, the supervisor runs the tests,
-  required `ruff-lint`, `eslint`, and `typecheck` checks, and any `ruff-format` or `prettier`
+  required `ruff-lint`, `eslint`, and `typecheck` checks, the checks the task type adds, and any
   check selected by the plan.
 - Never revert unrelated or pre-existing changes, change approved intent, approve completion,
   choose routing, or generate a different task or action identity.
