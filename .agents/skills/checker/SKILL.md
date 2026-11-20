@@ -93,11 +93,11 @@ Complete each applicable area before returning, even after finding a blocking de
   defaults, broad exception handling, and unrelated behavior changes.
 - Require simple docstrings for public or non-obvious behavior when the surrounding project expects
   them. Do not require comments that only narrate clear code.
-- Check the change against `AGENTS.md` and `rules.md`: strict typing with no `any`, `"use client"`
-  where needed, `@/*` imports, no comment over two lines, and no unneeded code.
-- For a UI change, also check `design.md` and the "Modern UI" and "Brand colors" sections of
-  `AGENTS.md`: theme tokens with no hard-coded hex, theme spacing, accessible names, and both
-  light and dark mode. Mark a visual criterion `pending` when only a running app can show it.
+- Check the change against every project guidance file that `guidance` in `harness.toml` lists,
+  such as `AGENTS.md`: its typing, import, comment, and structure rules, and no unneeded code.
+- For a UI change, also check the project's design guidance: design tokens with no hard-coded
+  colors or spacing, accessible names, and every theme the project supports. Mark a visual
+  criterion `pending` when only a running app can show it.
 
 ### Test quality
 

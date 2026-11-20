@@ -42,8 +42,9 @@ def test_ordinary_paths_are_not_protected(path: str) -> None:
     [
         "package.json",
         ".husky/pre-commit",
-        ".ruff.toml",
-        "pyproject.toml",
+        ".harness/ruff.toml",
+        ".harness/pyproject.toml",
+        "harness.toml",
         "eslint.config.mjs",
         "conftest.py",
         "tests/unit/conftest.py",

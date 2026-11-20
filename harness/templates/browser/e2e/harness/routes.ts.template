@@ -1,0 +1,52 @@
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { join, relative, sep } from 'node:path';
+
+// The routes the `browser` and `a11y` checks visit, in this order of precedence:
+// 1. E2E_ROUTES, a comma-separated list such as "/,/settings".
+// 2. e2e/harness/routes.json, a JSON array of paths. Use it for any router that is not
+//    file-based, such as React Router, Vue Router, or server-rendered Python pages.
+// 3. Every static page of a Next.js App Router app in src/app or app.
+// 4. "/" alone.
+export function harnessRoutes(root = process.cwd()): string[] {
+  const fromEnv = process.env.E2E_ROUTES?.split(',').map((route) => route.trim()).filter(Boolean);
+  if (fromEnv?.length) {
+    return fromEnv;
+  }
+  const listed = join(root, 'e2e', 'harness', 'routes.json');
+  if (existsSync(listed)) {
+    const routes: unknown = JSON.parse(readFileSync(listed, 'utf8'));
+    if (!Array.isArray(routes) || !routes.every((route) => typeof route === 'string')) {
+      throw new Error('e2e/harness/routes.json must be a JSON array of route strings');
+    }
+    return routes;
+  }
+  for (const candidate of [join(root, 'src', 'app'), join(root, 'app')]) {
+    if (existsSync(candidate)) {
+      const routes = appRouterRoutes(candidate);
+      if (routes.length) {
+        return routes;
+      }
+    }
+  }
+  return ['/'];
+}
+
+// Dynamic segments need data, so they are skipped, and so is a login page that needs an
+// identity provider. Private (_), parallel (@), intercepting ((.)), and hidden folders have no
+// URL of their own. Route groups such as (marketing) organize files but are not in the URL.
+export function appRouterRoutes(appDir: string, dir = appDir): string[] {
+  return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+    const path = join(dir, entry.name);
+    if (entry.isDirectory()) {
+      return /^[[_@.]|^\(\./.test(entry.name) ? [] : appRouterRoutes(appDir, path);
+    }
+    if (!/^page\.(tsx|ts|jsx|js|mdx)$/.test(entry.name)) {
+      return [];
+    }
+    const segments = relative(appDir, dir)
+      .split(sep)
+      .filter((part) => part && !/^\(.*\)$/.test(part));
+    const route = `/${segments.join('/')}`;
+    return route.startsWith('/login') ? [] : [route];
+  });
+}

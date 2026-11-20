@@ -1,0 +1,70 @@
+# Vite + React single-page app with npm, Vitest, ESLint, and Playwright.
+# Playwright checks "/" unless e2e/harness/routes.json lists more routes.
+
+context = ["src"]
+guidance = ["AGENTS.md"]
+
+[[tests]]
+name = "vitest"
+command = ["npx", "--no-install", "vitest", "run"]
+timeout = 300
+
+[checks.ruff-lint]
+command = ["uv", "run", "--project", ".harness", "--no-sync", "ruff", "check", "--config=.harness/ruff.toml"]
+files = ["*.py"]
+timeout = 120
+mandatory = true
+
+[checks.eslint]
+command = ["npx", "--no-install", "eslint", "--no-warn-ignored"]
+files = ["*.ts", "*.tsx", "*.js", "*.jsx", "*.mjs", "*.cjs"]
+timeout = 180
+mandatory = true
+
+[checks.prettier]
+command = ["npx", "--no-install", "prettier", "--check", "--ignore-unknown"]
+files = ["*.ts", "*.tsx", "*.js", "*.jsx", "*.mjs", "*.cjs", "*.css", "*.json"]
+timeout = 120
+
+[checks.typecheck]
+command = ["npx", "--no-install", "tsc", "--noEmit", "-p", "."]
+timeout = 300
+mandatory = true
+
+[checks.red-tests]
+kind = "red-tests"
+command = ["node_modules/.bin/vitest", "run"]
+files = ["*.test.ts", "*.test.tsx", "*.spec.ts", "*.spec.tsx"]
+separator = ""
+failure_pattern = 'Test Files\s+\d+ failed'
+link = ["node_modules"]
+timeout = 300
+
+[checks.browser]
+command = ["npx", "--no-install", "playwright", "test", "--project=smoke"]
+timeout = 600
+env = { E2E_WEB_SERVER = "npm run build && npm run preview -- --port {port} --strictPort" }
+
+[checks.a11y]
+command = ["npx", "--no-install", "playwright", "test", "--project=a11y"]
+timeout = 600
+env = { E2E_WEB_SERVER = "npm run build && npm run preview -- --port {port} --strictPort" }
+
+[task_types]
+feature = ["red-tests", "browser"]
+bug-fix = ["red-tests"]
+ui-change = ["browser", "a11y"]
+
+[protected]
+files = [
+    "package.json",
+    "package-lock.json",
+    "tsconfig.json",
+    "tsconfig.app.json",
+    "tsconfig.node.json",
+    "eslint.config.js",
+    "vite.config.ts",
+    "vitest.config.ts",
+    "playwright.config.ts",
+    ".prettierrc",
+]

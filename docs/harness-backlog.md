@@ -50,3 +50,16 @@ This document lists open harness work and known risks. Each risk gives the probl
   - `_completion_evidence` lists the checks record and `results.json` only.
   - Example: a run completes in round 2. The result does not say that files changed during a pause and a person approved them.
   - Fix: add the drift record path to the completion evidence when the round is greater than 1.
+
+### Project settings
+
+- A change to `harness.toml` applies to the run that made it.
+  - The supervisor reads `harness.toml` on each call. `harness.toml` is protected, so a person approves the change, but the next call already uses the new checks.
+  - Fix: save a digest of `harness.toml` at plan approval, and block the run when it changes before completion.
+- A `red-tests` check can import the changed code instead of `HEAD`.
+  - The clean checkout links the folders in `link`. A package that an editable install or a workspace link points at the main checkout loads from there.
+  - The `python-uv` and `fastapi-react` presets avoid it for Python: `uv run --frozen` builds a fresh environment in the clean checkout. A pnpm or npm workspace with linked local packages still has the risk.
+  - Fix: install the dependencies in the clean checkout, or link each workspace package to its clean copy.
+- The presets assume a layout.
+  - `fastapi-react` assumes `backend/` and `frontend/`, and `app/main.py` for the API server in the browser checks. `nextjs-pnpm` assumes pnpm.
+  - `doctor` reports a missing folder or program, but it cannot tell that a command is the wrong one.

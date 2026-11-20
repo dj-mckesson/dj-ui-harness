@@ -262,16 +262,17 @@ def test_actions_reject_invalid_candidate_and_symlink_context(
         )
 
 
-def test_repository_guidance_pointers_exist() -> None:
+def test_the_agents_section_template_points_to_docs_that_ship_with_the_harness() -> None:
     repo_root = Path(__file__).resolve().parents[2]
-    assert "AGENTS.md" in (repo_root / "CLAUDE.md").read_text(encoding="utf-8")
-    text = (repo_root / "AGENTS.md").read_text(encoding="utf-8")
-    section = text.split("## Harness\n", 1)[1].split("\n## ", 1)[0]
-    pointers = re.findall(r"\]\(([^)]+)\)", section)
+    text = (repo_root / "harness" / "templates" / "agents-section.md").read_text(
+        encoding="utf-8"
+    )
+    assert text.startswith("## Harness\n")
+    pointers = re.findall(r"\]\(([^)]+)\)", text)
     assert pointers == ["docs/harness.md", "docs/harness-backlog.md"]
-    for pointer in [*pointers, "rules.md", "design.md", ".ruff.toml", "pyproject.toml"]:
+    for pointer in pointers:
         assert (repo_root / pointer).is_file(), (
-            f"AGENTS.md points to a missing file: {pointer}"
+            f"the template points to a missing file: {pointer}"
         )
 
 

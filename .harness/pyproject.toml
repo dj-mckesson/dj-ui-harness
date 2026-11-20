@@ -1,0 +1,26 @@
+# The harness's own Python environment. It lives in .harness/ so it never mixes with the
+# project's pyproject.toml, virtual environment, or ruff and pytest settings.
+# Install: uv sync --project .harness
+[project]
+name = "dj-ui-harness"
+version = "0.2.0"
+description = "Python tooling for the coding harness. The project it runs in can use any stack."
+requires-python = ">=3.12"
+dependencies = []
+
+[dependency-groups]
+dev = [
+    "pydantic>=2.13.4",
+    "pytest>=8",
+    "ruff>=0.6",
+]
+
+[tool.uv]
+package = false
+
+# Run from the repository root with `-c .harness/pyproject.toml --rootdir .`.
+[tool.pytest.ini_options]
+testpaths = ["tests/harness"]
+python_files = ["test_*.py"]
+addopts = "--import-mode=importlib -p no:cacheprovider"
+pythonpath = ["."]

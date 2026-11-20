@@ -67,11 +67,12 @@ def create_run(
         )
     paths = load_paths(resolved_root)
     try:
-        require_safe_artifact_path(
-            resolved_root,
-            paths.app,
-            label="application directory",
-        )
+        for context in paths.context:
+            require_safe_artifact_path(
+                resolved_root,
+                context,
+                label="context directory",
+            )
         require_safe_artifact_path(
             resolved_root,
             paths.planning,

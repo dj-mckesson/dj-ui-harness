@@ -36,12 +36,12 @@ Do not assume context from another action or conversation.
   or reinterpret `approved-plan.json`.
 - Write tests needed by the approved test intents before the code they cover; do not weaken, skip,
   delete, or rewrite tests to conceal incorrect behavior.
-- Write each test so it fails without the change. For a `feature` or `bug-fix` task, the
-  `red-tests` check runs the changed test files on a clean `HEAD` and fails the candidate if they
-  pass there.
+- Write each test so it fails without the change. When the task type adds a `red-tests` check
+  (see `[task_types]` in `harness.toml`), the supervisor runs the changed test files on a clean
+  `HEAD` and fails the candidate if they pass there.
 - Do not run validation commands. After checker review, the supervisor runs the tests,
-  required `ruff-lint`, `eslint`, and `typecheck` checks, the checks the task type adds, and any
-  check selected by the plan.
+  mandatory checks in `harness.toml`, the checks the task type adds, and any check selected by
+  the plan.
 - Never revert unrelated or pre-existing changes, change approved intent, approve completion,
   choose routing, or generate a different task or action identity.
 
@@ -79,16 +79,19 @@ Do not assume context from another action or conversation.
   operations when the change touches them. Prefer fail-closed behavior at trust boundaries.
 - Follow the language, framework, naming, formatting, typing, and documentation patterns already
   used by the surrounding code unless those patterns conflict with the approved artifacts.
-- Update affected documentation. Follow the comment, typing, styling, and brand-color rules in
-  `AGENTS.md` and `rules.md`. Comments explain purpose or constraints, not what the code says.
-- For a UI change, follow `design.md` and the "Modern UI" section of `AGENTS.md`. Use theme tokens,
-  give every control an accessible name, and keep both light and dark mode correct.
+- Update affected documentation. Follow the comment, typing, styling, and naming rules in the
+  project guidance files that `guidance` in `harness.toml` lists. Comments explain purpose or
+  constraints, not what the code says.
+- For a UI change, follow the project's design guidance. Use its design tokens instead of
+  hard-coded values, give every control an accessible name, and keep every theme the project
+  supports correct.
 
 ## Test quality
 
 - Trace every maker-authored test to an approved acceptance criterion or material regression risk.
 - Assert observable behavior and outputs rather than private implementation steps. Follow the
-  "Testing" section of `AGENTS.md`: Vitest and React Testing Library, queried by accessible role.
+  project's testing guidance and its existing test framework. In UI tests, query elements by
+  accessible role and name.
 - Cover approved success behavior and the material failure and boundary cases identified by the
   specification and plan.
 - Write deterministic, isolated tests with meaningful assertions that would fail if the behavior

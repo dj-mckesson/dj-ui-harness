@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "[ -f \"$CLAUDE_PROJECT_DIR/runs/active.json\" ] || exit 0; exec uv --directory \"$CLAUDE_PROJECT_DIR\" run --quiet --no-sync python -m harness.hooks.claude_adapter --repo-root \"$CLAUDE_PROJECT_DIR\"",
+            "command": "[ -f \"$CLAUDE_PROJECT_DIR/runs/active.json\" ] || exit 0; exec uv --directory \"$CLAUDE_PROJECT_DIR\" run --project .harness --quiet --no-sync python -m harness.hooks.claude_adapter --repo-root \"$CLAUDE_PROJECT_DIR\"",
             "timeout": 30,
             "onFailure": "block"
           }

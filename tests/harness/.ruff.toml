@@ -1,0 +1,2 @@
+# Ruff uses the closest config, so a project's own `ruff check` lints harness tests with these rules.
+extend = "../../.harness/ruff.toml"

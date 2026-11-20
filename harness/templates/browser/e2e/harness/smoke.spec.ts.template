@@ -1,8 +1,8 @@
 import { expect, test } from '@playwright/test';
 
-import { staticRoutes } from './routes';
+import { harnessRoutes } from './routes';
 
-for (const route of staticRoutes()) {
+for (const route of harnessRoutes()) {
   test(`${route} renders without errors`, async ({ page, baseURL }) => {
     const problems: string[] = [];
     page.on('pageerror', (error) => problems.push(`page error: ${error.message}`));

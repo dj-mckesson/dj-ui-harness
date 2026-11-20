@@ -1,0 +1,115 @@
+# Full-stack repository: a FastAPI backend in backend/ (uv, pytest, ruff, pyright) and a
+# React frontend in frontend/ (pnpm, Vitest, ESLint, Playwright).
+# Change the folder names here if the project uses others, such as api/ and web/.
+
+context = ["backend", "frontend"]
+guidance = ["AGENTS.md"]
+
+[[tests]]
+name = "backend"
+command = ["uv", "run", "--no-sync", "pytest", "-q"]
+cwd = "backend"
+timeout = 600
+
+[[tests]]
+name = "frontend"
+command = ["pnpm", "test", "--run"]
+cwd = "frontend"
+timeout = 300
+
+[checks.ruff-lint]
+command = ["uv", "run", "--no-sync", "ruff", "check"]
+files = ["backend/**/*.py"]
+cwd = "backend"
+timeout = 120
+mandatory = true
+
+[checks.ruff-harness]
+command = ["uv", "run", "--project", ".harness", "--no-sync", "ruff", "check", "--config=.harness/ruff.toml"]
+files = ["harness/**/*.py", "tests/harness/**/*.py"]
+timeout = 120
+mandatory = true
+
+[checks.ruff-format]
+command = ["uv", "run", "--no-sync", "ruff", "format", "--check"]
+files = ["backend/**/*.py"]
+cwd = "backend"
+timeout = 120
+
+[checks.typecheck-backend]
+command = ["uv", "run", "--no-sync", "pyright"]
+cwd = "backend"
+timeout = 600
+mandatory = true
+
+[checks.eslint]
+command = ["pnpm", "exec", "eslint", "--no-warn-ignored"]
+files = ["frontend/**/*.ts", "frontend/**/*.tsx", "frontend/**/*.js", "frontend/**/*.jsx"]
+cwd = "frontend"
+timeout = 180
+mandatory = true
+
+[checks.typecheck-frontend]
+command = ["pnpm", "exec", "tsc", "--noEmit", "-p", "."]
+cwd = "frontend"
+timeout = 300
+mandatory = true
+
+[checks.prettier]
+command = ["pnpm", "exec", "prettier", "--check", "--ignore-unknown"]
+files = ["frontend/**/*.ts", "frontend/**/*.tsx", "frontend/**/*.css", "frontend/**/*.json"]
+cwd = "frontend"
+timeout = 120
+
+# A change needs a new failing test on at least one side. The side with no changed test is
+# skipped.
+[checks.red-tests-backend]
+kind = "red-tests"
+command = ["uv", "run", "--frozen", "pytest", "-q"]
+files = ["backend/**/test_*.py", "backend/**/*_test.py"]
+cwd = "backend"
+separator = ""
+# A test that imports code missing on HEAD fails collection, which pytest reports as an error.
+failure_pattern = '\d+ (failed|errors?)\b'
+timeout = 600
+
+[checks.red-tests-frontend]
+kind = "red-tests"
+command = ["node_modules/.bin/vitest", "run"]
+files = ["frontend/**/*.test.ts", "frontend/**/*.test.tsx"]
+cwd = "frontend"
+separator = ""
+failure_pattern = 'Test Files\s+\d+ failed'
+link = ["frontend/node_modules"]
+timeout = 300
+
+[checks.browser]
+command = ["pnpm", "exec", "playwright", "test", "--project=smoke"]
+cwd = "frontend"
+timeout = 900
+env = { E2E_WEB_SERVER = "pnpm build && pnpm preview --port {port} --strictPort", E2E_API_SERVER = "cd ../backend && uv run --no-sync fastapi run app/main.py --port 8000", E2E_API_URL = "http://localhost:8000/docs" }
+
+[checks.a11y]
+command = ["pnpm", "exec", "playwright", "test", "--project=a11y"]
+cwd = "frontend"
+timeout = 900
+env = { E2E_WEB_SERVER = "pnpm build && pnpm preview --port {port} --strictPort", E2E_API_SERVER = "cd ../backend && uv run --no-sync fastapi run app/main.py --port 8000", E2E_API_URL = "http://localhost:8000/docs" }
+
+[task_types]
+feature = ["red-tests-backend", "red-tests-frontend", "browser"]
+bug-fix = ["red-tests-backend", "red-tests-frontend"]
+ui-change = ["browser", "a11y"]
+
+[protected]
+files = [
+    "backend/pyproject.toml",
+    "backend/uv.lock",
+    "backend/alembic.ini",
+    "frontend/package.json",
+    "frontend/pnpm-lock.yaml",
+    "frontend/tsconfig.json",
+    "frontend/eslint.config.js",
+    "frontend/vite.config.ts",
+    "frontend/playwright.config.ts",
+]
+dirs = ["frontend/e2e/harness", "backend/alembic", "backend/migrations"]

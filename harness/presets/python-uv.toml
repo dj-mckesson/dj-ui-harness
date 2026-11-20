@@ -1,0 +1,47 @@
+# Python project managed by uv, with pytest, ruff, and pyright.
+# Swap the typecheck command for mypy or ty if the project uses one of those.
+
+context = ["src"]
+guidance = ["AGENTS.md"]
+
+[[tests]]
+name = "pytest"
+command = ["uv", "run", "--no-sync", "pytest", "-q"]
+timeout = 600
+
+[checks.ruff-lint]
+command = ["uv", "run", "--no-sync", "ruff", "check"]
+files = ["*.py"]
+timeout = 120
+mandatory = true
+
+[checks.ruff-format]
+command = ["uv", "run", "--no-sync", "ruff", "format", "--check"]
+files = ["*.py"]
+timeout = 120
+
+# Name the project's code: run on the whole repository, pyright would also check harness/,
+# whose imports live in the harness environment, not the project's.
+[checks.typecheck]
+command = ["uv", "run", "--no-sync", "pyright", "src"]
+timeout = 600
+mandatory = true
+
+# The clean checkout gets its own environment from the lockfile, so an editable install
+# cannot import the changed code by mistake.
+[checks.red-tests]
+kind = "red-tests"
+command = ["uv", "run", "--frozen", "pytest", "-q"]
+files = ["test_*.py", "*_test.py"]
+separator = ""
+# A test that imports code missing on HEAD fails collection, which pytest reports as an error.
+failure_pattern = '\d+ (failed|errors?)\b'
+timeout = 600
+
+[task_types]
+feature = ["red-tests"]
+bug-fix = ["red-tests"]
+
+[protected]
+files = ["pyproject.toml", "uv.lock", ".python-version", "ruff.toml", ".ruff.toml", "pytest.ini", "alembic.ini"]
+dirs = ["alembic", "migrations"]

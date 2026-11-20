@@ -1,0 +1,77 @@
+# Next.js App Router app with pnpm, Vitest, ESLint, and Playwright.
+# The only Python in the repository is the harness, so ruff runs from the harness environment.
+
+context = ["src"]
+guidance = ["AGENTS.md"]
+
+[[tests]]
+name = "vitest"
+command = ["pnpm", "test", "--maxWorkers=1"]
+timeout = 300
+
+[checks.ruff-lint]
+command = ["uv", "run", "--project", ".harness", "--no-sync", "ruff", "check", "--config=.harness/ruff.toml"]
+files = ["*.py"]
+timeout = 120
+mandatory = true
+
+[checks.ruff-format]
+command = ["uv", "run", "--project", ".harness", "--no-sync", "ruff", "format", "--check", "--config=.harness/ruff.toml"]
+files = ["*.py"]
+timeout = 120
+
+[checks.eslint]
+command = ["pnpm", "exec", "eslint", "--no-warn-ignored"]
+files = ["*.ts", "*.tsx", "*.js", "*.jsx", "*.mjs", "*.cjs"]
+timeout = 180
+mandatory = true
+
+[checks.prettier]
+command = ["pnpm", "exec", "prettier", "--check", "--ignore-unknown"]
+files = ["*.ts", "*.tsx", "*.js", "*.jsx", "*.mjs", "*.cjs"]
+timeout = 120
+
+[checks.typecheck]
+command = ["pnpm", "typecheck"]
+timeout = 300
+mandatory = true
+
+# Runs the changed test files on a clean checkout of HEAD. Passes only when they fail there.
+# The binary runs directly: `pnpm exec` would reinstall when HEAD's lockfile differs.
+[checks.red-tests]
+kind = "red-tests"
+command = ["node_modules/.bin/vitest", "run"]
+files = ["*.test.ts", "*.test.tsx"]
+separator = ""
+failure_pattern = 'Test Files\s+\d+ failed'
+link = ["node_modules"]
+timeout = 300
+
+[checks.browser]
+command = ["pnpm", "exec", "playwright", "test", "--project=smoke"]
+timeout = 600
+env = { E2E_WEB_SERVER = "pnpm build && pnpm start --port {port}" }
+
+[checks.a11y]
+command = ["pnpm", "exec", "playwright", "test", "--project=a11y"]
+timeout = 600
+env = { E2E_WEB_SERVER = "pnpm build && pnpm start --port {port}" }
+
+[task_types]
+feature = ["red-tests", "browser"]
+bug-fix = ["red-tests"]
+ui-change = ["browser", "a11y"]
+
+[protected]
+files = [
+    "package.json",
+    "pnpm-lock.yaml",
+    "pnpm-workspace.yaml",
+    "tsconfig.json",
+    "eslint.config.mjs",
+    "vitest.config.ts",
+    "vitest.setup.ts",
+    "next.config.ts",
+    "playwright.config.ts",
+    ".prettierrc",
+]

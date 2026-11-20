@@ -30,11 +30,11 @@ Do not assume context from another action or conversation.
   read-only.
 - Never name `.git`, `runs/`, or `planning/` in a work item. The supervisor owns them.
 - Name every protected file individually. Protected files are all files below `harness/`,
-  `tests/harness/`, `.agents/`, `.claude/`, `.codex/`, and `.husky/`, plus `.ruff.toml`,
-  `pyproject.toml`, `uv.lock`, `package.json`, `pnpm-lock.yaml`, `tsconfig.json`,
-  `eslint.config.mjs`, `vitest.config.ts`, `vitest.setup.ts`, `next.config.ts`, `.prettierrc`, and
-  every `conftest.py`, `CLAUDE.md`, or `AGENTS.md`. A folder scope never covers them, and `.` does
-  not either. Name a protected file only when the task requires it, and say why in its intent.
+  `tests/harness/`, `e2e/harness/`, `.harness/`, `.agents/`, `.claude/`, `.codex/`, `.github/`,
+  and `.husky/`, plus `harness.toml` and every `conftest.py`, `CLAUDE.md`, or `AGENTS.md`. The
+  `[protected]` table in `harness.toml` adds the project's own tool configs and lockfiles. A
+  folder scope never covers them, and `.` does not either. Name a protected file only when the
+  task requires it, and say why in its intent.
 - Do not render or write `PLAN.md`; deterministic supervisor code owns that projection.
 - Reference only existing approved spec IDs and exact in-scope work-item paths. Never place
   executable commands in `plan.json`. You may select a supervisor-owned check by name, as
@@ -147,28 +147,27 @@ Return `ready_for_approval` only after all of these checks pass:
 
 ## Checks and manual reviews
 
-The tests, `ruff-lint`, `eslint`, and `typecheck` always run as required supervisor checks. Do not
-put them in `checks`. `ruff-lint` checks added or changed Python files. `eslint` checks added or
-changed `.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`, and `.cjs` files. Each records `skipped` if the
-current validation round has no such file. `typecheck` runs `tsc --noEmit` on the whole repository.
+Read `harness.toml` at the repository root before you pick checks. It is the only list of the
+project's checks:
 
-Set `task_type` to the kind of change. The supervisor adds required checks for it:
+- `[[tests]]` are the project tests. They always run.
+- A check with `mandatory = true` always runs as a required check. Do not put it in `checks`.
+- A check with `files` runs on the added or changed files that match those patterns, and records
+  `skipped` if the current validation round has none. A check without `files` runs once on the
+  whole repository.
+- `[task_types]` lists the required checks the supervisor adds for each `task_type`.
 
-| `task_type` | Added required checks |
-| --- | --- |
-| `feature` | `red-tests`, `browser` |
-| `bug-fix` | `red-tests` |
-| `ui-change` | `browser`, `a11y` |
-| `refactor`, `docs`, `other` | None |
+Set `task_type` to the kind of change: `feature`, `bug-fix`, `ui-change`, `refactor`, `docs`, or
+`other`. A check with `kind = "red-tests"` runs the added or changed test files that match its
+`files` on a clean checkout of `HEAD` and passes only when they fail there. So when the task type
+adds one, the plan must plan at least one matching test file. When there are several, such as one
+for a backend and one for a frontend, one matching test on either side is enough. In the presets,
+`browser` loads the app's pages in a real browser and fails on errors, and `a11y` fails on serious
+WCAG violations. Name the test file in each test intent, and for UI work name every state the
+change must handle (loading, empty, error, and success).
 
-`red-tests` runs the added or changed `*.test.ts(x)` files on a clean checkout of `HEAD` and
-passes only when they fail there, so a `feature` or `bug-fix` plan must plan at least one test
-file. `browser` loads every static page in a real browser and fails on errors. `a11y` fails on
-serious WCAG violations. Name the test file in each test intent, and for UI work name every state
-the change must handle (loading, empty, error, and success).
-
-A plan may also select `ruff-format`, `prettier`, `red-tests`, `browser`, and `a11y` by name,
-except a check its task type already adds. Mark it `"required": true` (the default) when a failure
+A plan may also select any other check that `harness.toml` defines, by name, except a mandatory
+check or a check its task type already adds. Mark it `"required": true` (the default) when a failure
 must block completion, or `"required": false` when its result is only information. Omit `checks`
 when no optional check is needed.
 

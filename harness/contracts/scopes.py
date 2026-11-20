@@ -6,38 +6,12 @@ three checks from drifting apart.
 
 from collections.abc import Iterable
 
+from harness.config import project_config
+
 REPOSITORY_ROOT_SCOPE = "."
 
 # The supervisor owns these paths. A folder scope never covers them, and a plan never names them.
 PROTECTED_ROOTS = (".git", "runs", "planning")
-
-# Protected files need a named file scope. These include harness code, tests, skills, hook
-# settings, and the project checks.
-EXACT_FILE_ROOTS = (
-    "harness",
-    "tests/harness",
-    ".agents",
-    ".claude",
-    ".codex",
-    ".github",
-    ".husky",
-    "e2e/harness",
-)
-EXACT_FILES = {
-    ".ruff.toml",
-    "pyproject.toml",
-    "uv.lock",
-    "package.json",
-    "pnpm-lock.yaml",
-    "tsconfig.json",
-    "eslint.config.mjs",
-    "vitest.config.ts",
-    "vitest.setup.ts",
-    "next.config.ts",
-    "playwright.config.ts",
-    ".prettierrc",
-}
-EXACT_NAMES = {"conftest.py", "CLAUDE.md", "AGENTS.md"}
 
 
 def is_within(path: str, root: str) -> bool:
@@ -58,12 +32,17 @@ def is_protected_path(path: str) -> bool:
 
 
 def requires_exact_file_scope(path: str) -> bool:
-    """Return whether a file needs an exact scope and human approval."""
+    """Return whether a file needs an exact scope and human approval.
 
+    The harness protects its own code, tests, skills, and hook settings. ``harness.toml`` adds
+    the project's tool configs and lockfiles under ``[protected]``.
+    """
+
+    config = project_config()
     return (
-        path in EXACT_FILES
-        or path.rsplit("/", 1)[-1] in EXACT_NAMES
-        or any(is_within(path, root) for root in EXACT_FILE_ROOTS)
+        path in config.protected_files
+        or path.rsplit("/", 1)[-1] in config.protected_names
+        or any(is_within(path, root) for root in config.protected_dirs)
     )
 
 

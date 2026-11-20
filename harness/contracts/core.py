@@ -10,7 +10,8 @@ from pydantic import (
     validate_call,
 )
 
-APPLICATION_DIRECTORY = "src"
+from harness.config import project_config
+
 MAX_CANDIDATE_ATTEMPTS = 2
 
 
@@ -62,7 +63,7 @@ class HarnessPaths(StrictModel):
     root: Path
     planning: Path
     runs: Path
-    app: Path
+    context: tuple[Path, ...]
 
 
 class TaskPaths(StrictModel):
@@ -139,7 +140,8 @@ def load_paths(repo_root: Path) -> HarnessPaths:
     """Return the fixed directories used by the harness.
 
     :param repo_root: Repository that contains the harness and application.
-    :return: Absolute paths for the root, ``planning``, ``runs``, and ``src``.
+    :return: Absolute paths for the root, ``planning``, ``runs``, and the default read
+        context from ``harness.toml``.
     """
 
     resolved_root = repo_root.resolve()
@@ -147,7 +149,7 @@ def load_paths(repo_root: Path) -> HarnessPaths:
         root=resolved_root,
         planning=resolved_root / "planning",
         runs=resolved_root / "runs",
-        app=resolved_root / APPLICATION_DIRECTORY,
+        context=tuple(resolved_root / path for path in project_config().context),
     )
 
 

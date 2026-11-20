@@ -6,17 +6,19 @@ import shutil
 import signal
 import subprocess
 import tempfile
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
 
 from pydantic import StrictBool, validate_call
 
-from harness.contracts.checks import (
-    APPROVED_CHECKS,
-    MANDATORY_CHECKS,
-    SCOPE_SUFFIXES,
+from harness.config import (
+    HARNESS_TEST_COMMAND,
     CheckSpec,
+    TestCommand,
+    matches,
+    project_config,
 )
 from harness.contracts.core import (
     CandidateAttempt,
@@ -36,20 +38,7 @@ from harness.feedback.changes import load_approved_plan
 from harness.utils.artifact_paths import require_safe_artifact_path
 from harness.utils.atomic import write_bytes
 
-TEST_COMMAND = ("pnpm", "test", "--maxWorkers=1")
-HARNESS_TEST_COMMAND = (
-    "uv",
-    "run",
-    "--no-sync",
-    "python",
-    "-m",
-    "pytest",
-    "-q",
-    "tests/harness",
-)
 TEST_TIMEOUT_SECONDS = 300
-# Vitest's summary line when at least one test file failed, for example "Test Files  1 failed".
-_FAILED_TEST_FILES = re.compile(r"Test Files\s+\d+ failed")
 TEST_OUTPUT_LIMIT = 100_000
 _TRUNCATION_MARKER = "\n...[truncated]..."
 
@@ -70,10 +59,14 @@ def _bounded_output(value: str | bytes | None) -> str:
 
 
 def _execute(
-    repo_root: Path, command: tuple[str, ...], timeout: int
+    repo_root: Path,
+    command: tuple[str, ...],
+    timeout: int,
+    env: Mapping[str, str] | None = None,
 ) -> ValidationCommandResult:
     """Run a command and stop its process group on timeout.
 
+    :param env: Extra environment variables for the command.
     :raises OSError: If process group cleanup fails.
     """
 
@@ -81,6 +74,7 @@ def _execute(
         process = subprocess.Popen(
             command,
             cwd=repo_root,
+            **({"env": {**os.environ, **env}} if env else {}),
             shell=False,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -138,45 +132,114 @@ def _execute(
     )
 
 
+def _run(
+    repo_root: Path,
+    cwd: str,
+    command: tuple[str, ...],
+    timeout: int,
+    env: Mapping[str, str],
+) -> ValidationCommandResult:
+    """Run one configured command in its folder, passing extra variables only when set."""
+
+    folder = repo_root if cwd == "." else repo_root / cwd
+    if env:
+        return _execute(folder, command, timeout, env)
+    return _execute(folder, command, timeout)
+
+
+def _labelled(test: TestCommand, result: ValidationCommandResult) -> str:
+    return f"== {test.name}: {' '.join(test.command)} ({result.status}) ==\n"
+
+
 def _execute_tests(
     repo_root: Path, *, include_harness_tests: bool
 ) -> ValidationCommandResult:
-    """Run the application tests, then the harness tests when requested.
+    """Run the project tests from ``harness.toml``, then the harness tests when requested.
 
-    :return: The first failing result, or the passing result of the last command.
+    The commands run in order and stop at the first failure.
+
+    :return: The failing result, or a passing result that holds every command's output.
     """
 
-    result = _execute(repo_root, TEST_COMMAND, TEST_TIMEOUT_SECONDS)
-    if result.status != "pass" or not include_harness_tests:
-        return result
-    return _execute(repo_root, HARNESS_TEST_COMMAND, TEST_TIMEOUT_SECONDS)
+    tests = list(project_config().tests)
+    if include_harness_tests:
+        tests.append(TestCommand("harness", HARNESS_TEST_COMMAND, TEST_TIMEOUT_SECONDS))
+    if len(tests) == 1:
+        test = tests[0]
+        return _run(repo_root, test.cwd, test.command, test.timeout, test.env)
+    stdout: list[str] = []
+    stderr: list[str] = []
+    for test in tests:
+        result = _run(repo_root, test.cwd, test.command, test.timeout, test.env)
+        stdout.append(_labelled(test, result) + result.stdout)
+        stderr.append(_labelled(test, result) + result.stderr)
+        if result.status != "pass":
+            return result.model_copy(
+                update={
+                    "stdout": _bounded_output("\n".join(stdout)),
+                    "stderr": _bounded_output("\n".join(stderr)),
+                }
+            )
+    return ValidationCommandResult(
+        status="pass",
+        exit_code=0,
+        stdout=_bounded_output("\n".join(stdout)),
+        stderr=_bounded_output("\n".join(stderr)),
+        timed_out=False,
+    )
+
+
+def _paths_for(spec: CheckSpec, paths: tuple[str, ...]) -> tuple[str, ...]:
+    """Keep the paths inside the check's folder, relative to that folder."""
+
+    if spec.cwd == ".":
+        return paths
+    prefix = f"{spec.cwd}/"
+    return tuple(path[len(prefix) :] for path in paths if path.startswith(prefix))
 
 
 def _run_checks(
     repo_root: Path, plan: PlanDocument, reference_digests: dict[str, str]
 ) -> tuple[NamedCheckResult, ...]:
-    """Run mandatory checks, then the checks selected by the plan."""
+    """Run mandatory checks, then the checks the task type adds, then the plan's checks.
 
-    results = []
-    selected = [(name, True) for name in (*MANDATORY_CHECKS, *plan.task_checks)]
+    When several ``red-tests`` checks run, as in a repository with a backend and a frontend,
+    a check with no changed test file is skipped as long as another one has a changed test.
+    """
+
+    config = project_config()
+    selected = [(name, True) for name in (*config.mandatory, *plan.task_checks)]
     selected.extend((check.name, check.required) for check in plan.checks)
+    red_paths = {
+        name: _paths_for(spec, _changed_paths(reference_digests, spec.files or ()))
+        for name, _ in selected
+        if (spec := config.check(name)).kind == "red-tests"
+    }
+    any_red_tests = any(red_paths.values())
+    results = []
     for name, required in selected:
-        spec = APPROVED_CHECKS[name]
-        if spec.scope == "repository":
-            result = _execute(repo_root, spec.command, spec.timeout)
-        elif name == "red-tests":
-            changed = _changed_paths(reference_digests, SCOPE_SUFFIXES[spec.scope])
-            result = _run_red_tests(repo_root, spec, changed)
-        else:
-            changed = _changed_paths(reference_digests, SCOPE_SUFFIXES[spec.scope])
+        spec = config.check(name)
+        if spec.kind == "red-tests":
+            paths = red_paths[name]
             result = (
-                _execute(
-                    repo_root, _command_with_paths(spec.command, changed), spec.timeout
+                _skipped()
+                if not paths and any_red_tests
+                else _run_red_tests(repo_root, spec, paths)
+            )
+        elif spec.files is None:
+            result = _run(repo_root, spec.cwd, spec.command, spec.timeout, spec.env)
+        else:
+            changed = _paths_for(spec, _changed_paths(reference_digests, spec.files))
+            result = (
+                _run(
+                    repo_root,
+                    spec.cwd,
+                    _command_with_paths(spec.command, changed, spec.separator),
+                    spec.timeout,
+                    spec.env,
                 )
                 if changed
-                else ValidationCommandResult(
-                    status="skipped", stdout="", stderr="", timed_out=False
-                )
+                else _skipped()
             )
         results.append(
             NamedCheckResult(
@@ -188,6 +251,12 @@ def _run_checks(
     return tuple(results)
 
 
+def _skipped() -> ValidationCommandResult:
+    return ValidationCommandResult(
+        status="skipped", stdout="", stderr="", timed_out=False
+    )
+
+
 def _run_red_tests(
     repo_root: Path, spec: CheckSpec, paths: tuple[str, ...]
 ) -> ValidationCommandResult:
@@ -196,6 +265,7 @@ def _run_red_tests(
     A test that also passes without the change proves nothing about the change. The baseline
     is ``HEAD``, so uncommitted changes made before the run count as part of the change.
 
+    :param paths: Changed test files, relative to the check's folder.
     :return: ``pass`` when the tests fail on the baseline, otherwise ``fail``.
     """
 
@@ -211,21 +281,35 @@ def _run_red_tests(
         if added.status != "pass":
             return added
         try:
-            modules = repo_root / "node_modules"
-            if modules.is_dir():
-                (baseline / "node_modules").symlink_to(modules, target_is_directory=True)
+            for link in spec.link:
+                source = repo_root / link
+                target = baseline / link
+                if source.is_dir() and not target.exists():
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    target.symlink_to(source, target_is_directory=True)
+            folder = baseline if spec.cwd == "." else baseline / spec.cwd
             for path in paths:
-                target = baseline / path
+                target = folder / path
                 target.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copyfile(repo_root / path, target)
-            result = _execute(baseline, (*spec.command, *paths), spec.timeout)
+                shutil.copyfile(
+                    (repo_root if spec.cwd == "." else repo_root / spec.cwd) / path,
+                    target,
+                )
+            result = _run(
+                baseline,
+                spec.cwd,
+                _command_with_paths(spec.command, paths, spec.separator),
+                spec.timeout,
+                spec.env,
+            )
         finally:
             _execute(
                 repo_root, ("git", "worktree", "remove", "--force", str(baseline)), 120
             )
     if result.launch_error is not None or result.timed_out:
         return result
-    if result.status == "fail" and _FAILED_TEST_FILES.search(result.stdout) is None:
+    pattern = re.compile(spec.failure_pattern or "")
+    if result.status == "fail" and pattern.search(result.stdout + result.stderr) is None:
         return _failed_check(
             "the baseline run failed before reporting test results",
             result.stdout,
@@ -260,23 +344,25 @@ def _failed_check(
 
 
 def _changed_paths(
-    reference_digests: dict[str, str], suffixes: tuple[str, ...]
+    reference_digests: dict[str, str], patterns: tuple[str, ...]
 ) -> tuple[str, ...]:
-    """Select sorted paths with a matching suffix that the round reference did not delete."""
+    """Select sorted paths that match a pattern and that the round reference did not delete."""
 
     return tuple(
         sorted(
             path
             for path, digest in reference_digests.items()
-            if path.endswith(suffixes) and digest != "deleted"
+            if matches(path, patterns) and digest != "deleted"
         )
     )
 
 
-def _command_with_paths(base: tuple[str, ...], paths: tuple[str, ...]) -> tuple[str, ...]:
-    """Append file paths after the argument separator."""
+def _command_with_paths(
+    base: tuple[str, ...], paths: tuple[str, ...], separator: str | None = "--"
+) -> tuple[str, ...]:
+    """Append file paths, after the separator when the check uses one."""
 
-    return (*base, "--", *paths)
+    return (*base, *((separator,) if separator else ()), *paths)
 
 
 def _load_results(path: Path, task_id: str) -> ValidationResultsDocument:
@@ -344,7 +430,7 @@ def run_tests(
 ) -> CandidateValidationRecord:
     """Run the fixed tests and all supervisor checks, and save the result.
 
-    :param include_harness_tests: Whether to also run the ``tests/harness`` Python tests.
+    :param include_harness_tests: Whether to also run the harness's own tests.
     :param reference_digests: Current round's change digests.
     :return: The saved record for the candidate and round.
     :raises OSError: If results cannot be read or written.

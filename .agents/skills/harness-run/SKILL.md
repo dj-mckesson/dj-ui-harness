@@ -10,13 +10,17 @@ authoritative. Never choose the next role, stage, repair, validation command, or
 
 ## Start or resume
 
-Work from the repository root. Put one JSON payload in a temporary file, then use one of these
-commands:
+Work from the repository root. Before the first `start` in a repository, run
+`uv run --project .harness --no-sync python -m harness.doctor`. If it reports a problem, stop and
+show it to the user: the harness needs a valid `harness.toml` and its own environment in
+`.harness/`.
+
+Put one JSON payload in a temporary file, then use one of these commands:
 
 ```text
-uv run python -m harness.execute start <payload-file>
-uv run python -m harness.execute next-action <payload-file>
-uv run python -m harness.execute submit <payload-file>
+uv run --project .harness --no-sync python -m harness.execute start <payload-file>
+uv run --project .harness --no-sync python -m harness.execute next-action <payload-file>
+uv run --project .harness --no-sync python -m harness.execute submit <payload-file>
 ```
 
 For `start`, provide `repo_root`, `original_request`, and optional `context_paths`. For
@@ -28,8 +32,8 @@ Two more commands help after an interruption. Both take `repo_root` and an optio
 and default to the active or newest run:
 
 ```text
-uv run python -m harness.execute status <payload-file>
-uv run python -m harness.execute resume <payload-file>
+uv run --project .harness --no-sync python -m harness.execute status <payload-file>
+uv run --project .harness --no-sync python -m harness.execute resume <payload-file>
 ```
 
 Use `status` to read where a run stands without changing it. Use `resume` after a restart. It
@@ -51,8 +55,8 @@ For an `agent` action:
 - Pass the complete action, including its exact `task_id`, `action_id`, `candidate_attempt`,
   `required_input_paths`, `writable_paths`, and context.
 - Do not infer, widen, remove, or replace any supplied identity or path.
-- Tell each role agent to read `AGENTS.md` and `rules.md` before work, and `design.md` for any UI
-  change. Tell the agent to read every path in `required_input_paths` before it starts.
+- Tell each role agent to read `harness.toml` and every guidance file it lists under `guidance`
+  before work. Tell the agent to read every path in `required_input_paths` before it starts.
 - Submit the agent's structured result unchanged inside the CLI `result` field.
 - If the agent stops without a result, leave the action pending. A later run may retry the same
   action ID.

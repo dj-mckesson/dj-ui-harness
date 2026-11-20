@@ -519,7 +519,7 @@ def test_folder_scope_does_not_allow_siblings(tmp_path: Path) -> None:
         ".husky/pre-commit",
         "tests/unit/conftest.py",
         "docs/AGENTS.md",
-        ".ruff.toml",
+        ".harness/ruff.toml",
     ],
 )
 def test_whole_repository_scope_excludes_supervisor_and_harness_paths(

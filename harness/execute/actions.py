@@ -146,7 +146,8 @@ def build_spec_author_action(
     :param original_request: Coding request the specification must describe.
     :param resolved_answers: Human answers already collected for this spec.
     :param rejection_feedback: Feedback from a rejected spec, when present.
-    :param context_paths: Read-only repository context; defaults to ``src``.
+    :param context_paths: Read-only repository context; defaults to ``context`` in
+        ``harness.toml``.
     :param action_id: Optional known action ID, mainly useful in tests.
     :return: Complete spec-author action ready to save in ``RunState``.
     """
@@ -157,7 +158,7 @@ def build_spec_author_action(
     readable = (
         _checked_supplied_paths(resolved_root, context_paths)
         if context_paths is not None
-        else (repository_path(resolved_root, paths.app),)
+        else tuple(repository_path(resolved_root, path) for path in paths.context)
     )
     writable = (repository_path(resolved_root, task_paths.spec),)
     return AgentAction(
@@ -197,7 +198,8 @@ def build_planner_action(
     :param spec_approved: Whether that current revision has human approval.
     :param resolved_answers: Human answers already collected for this plan.
     :param rejection_feedback: Feedback from a rejected plan, when present.
-    :param context_paths: Read-only repository context; defaults to ``src``.
+    :param context_paths: Read-only repository context; defaults to ``context`` in
+        ``harness.toml``.
     :param action_id: Optional known action ID, mainly useful in tests.
     :return: Complete planner action ready to save in ``RunState``.
     :raises ValueError: If the specification is not approved or is invalid.
@@ -212,7 +214,7 @@ def build_planner_action(
     readable_context = (
         _checked_supplied_paths(resolved_root, context_paths)
         if context_paths is not None
-        else (repository_path(resolved_root, paths.app),)
+        else tuple(repository_path(resolved_root, path) for path in paths.context)
     )
     return AgentAction(
         action_id=_action_id(action_id),

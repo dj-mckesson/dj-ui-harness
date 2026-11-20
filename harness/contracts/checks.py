@@ -1,99 +1,69 @@
-"""Define the supervisor's validation check policy."""
+"""Define the supervisor's validation check policy.
 
-from dataclasses import dataclass
-from typing import Literal
+The checks themselves come from the project's ``harness.toml``. This module gives the contracts
+one place to ask which checks exist, which are mandatory, and which a task type adds.
+"""
 
-CheckName = Literal[
-    "ruff-lint",
-    "ruff-format",
-    "eslint",
-    "prettier",
-    "typecheck",
-    "red-tests",
-    "browser",
-    "a11y",
-]
-CheckScope = Literal[
-    "changed-python-files", "changed-web-files", "changed-test-files", "repository"
-]
-CHECK_SCOPES: tuple[CheckScope, ...] = (
-    "changed-python-files",
-    "changed-web-files",
-    "changed-test-files",
-    "repository",
+from typing import Annotated
+
+from pydantic import AfterValidator
+
+from harness.config import (
+    TASK_TYPES,
+    CheckSpec,
+    ProjectConfig,
+    TaskType,
+    matches,
+    project_config,
 )
-MANDATORY_CHECKS: tuple[CheckName, ...] = ("ruff-lint", "eslint", "typecheck")
-PYTHON_SUFFIXES = (".py",)
-WEB_SUFFIXES = (".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs")
-TEST_SUFFIXES = (".test.ts", ".test.tsx")
-SCOPE_SUFFIXES: dict[CheckScope, tuple[str, ...]] = {
-    "changed-python-files": PYTHON_SUFFIXES,
-    "changed-web-files": WEB_SUFFIXES,
-    "changed-test-files": TEST_SUFFIXES,
-}
 
-TaskType = Literal["feature", "bug-fix", "ui-change", "refactor", "docs", "other"]
-# The supervisor adds these required checks from the plan's task type.
-TASK_TYPE_CHECKS: dict[TaskType, tuple[CheckName, ...]] = {
-    "feature": ("red-tests", "browser"),
-    "bug-fix": ("red-tests",),
-    "ui-change": ("browser", "a11y"),
-    "refactor": (),
-    "docs": (),
-    "other": (),
-}
+__all__ = [
+    "TASK_TYPES",
+    "CheckName",
+    "CheckSpec",
+    "TaskType",
+    "approved_checks",
+    "check_spec",
+    "mandatory_checks",
+    "matches",
+    "task_type_checks",
+]
 
 
-@dataclass(frozen=True)
-class CheckSpec:
-    """Hold a check command, timeout, and file scope."""
+def approved_checks(config: ProjectConfig | None = None) -> dict[str, CheckSpec]:
+    """Return every check the project approves, by name."""
 
-    command: tuple[str, ...]
-    timeout: int
-    scope: CheckScope
-
-    def __post_init__(self) -> None:
-        """Reject invalid check policy values."""
-
-        if not isinstance(self.command, tuple) or not self.command:
-            raise ValueError("a check command must be a non-empty tuple")
-        if self.timeout <= 0:
-            raise ValueError("a check timeout must be positive")
-        if self.scope not in CHECK_SCOPES:
-            raise ValueError("a check scope is invalid")
+    return dict((config or project_config()).checks)
 
 
-APPROVED_CHECKS: dict[CheckName, CheckSpec] = {
-    "ruff-lint": CheckSpec(
-        ("uv", "run", "--no-sync", "ruff", "check", "--config=.ruff.toml"),
-        120,
-        "changed-python-files",
-    ),
-    "ruff-format": CheckSpec(
-        ("uv", "run", "--no-sync", "ruff", "format", "--check", "--config=.ruff.toml"),
-        120,
-        "changed-python-files",
-    ),
-    "eslint": CheckSpec(
-        ("pnpm", "exec", "eslint", "--no-warn-ignored"),
-        180,
-        "changed-web-files",
-    ),
-    "prettier": CheckSpec(
-        ("pnpm", "exec", "prettier", "--check", "--ignore-unknown"),
-        120,
-        "changed-web-files",
-    ),
-    "typecheck": CheckSpec(("pnpm", "typecheck"), 300, "repository"),
-    # Runs the changed test files against a clean checkout of HEAD. Passes only when they fail.
-    # The binary runs directly: `pnpm exec` would reinstall when HEAD's lockfile differs.
-    "red-tests": CheckSpec(
-        ("node_modules/.bin/vitest", "run"), 300, "changed-test-files"
-    ),
-    "browser": CheckSpec(
-        ("pnpm", "exec", "playwright", "test", "--project=smoke"), 600, "repository"
-    ),
-    "a11y": CheckSpec(
-        ("pnpm", "exec", "playwright", "test", "--project=a11y"), 600, "repository"
-    ),
-}
+def check_spec(name: str) -> CheckSpec:
+    """Return one approved check.
+
+    :raises KeyError: If the project does not define the check.
+    """
+
+    return project_config().check(name)
+
+
+def mandatory_checks() -> tuple[str, ...]:
+    """Return the checks that run for every candidate."""
+
+    return project_config().mandatory
+
+
+def task_type_checks(task_type: TaskType) -> tuple[str, ...]:
+    """Return the required checks that a task type adds."""
+
+    return project_config().task_types[task_type]
+
+
+def _known_check(name: str) -> str:
+    checks = project_config().checks
+    if name not in checks:
+        raise ValueError(
+            f"unknown check {name!r}; harness.toml defines {', '.join(sorted(checks))}"
+        )
+    return name
+
+
+CheckName = Annotated[str, AfterValidator(_known_check)]

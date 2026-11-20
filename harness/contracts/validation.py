@@ -9,7 +9,7 @@ from pydantic import (
     model_validator,
 )
 
-from harness.contracts.checks import APPROVED_CHECKS, MANDATORY_CHECKS, CheckName
+from harness.contracts.checks import CheckName, check_spec, mandatory_checks
 from harness.contracts.core import (
     MAX_CANDIDATE_ATTEMPTS,
     CandidateAttempt,
@@ -116,7 +116,7 @@ class NamedCheckResult(StrictModel):
 
         if (
             self.result.status == "skipped"
-            and APPROVED_CHECKS[self.name].scope == "repository"
+            and check_spec(self.name).scope == "repository"
         ):
             raise ValueError("only a changed-file check may be skipped")
         return self
@@ -150,7 +150,7 @@ class CandidateValidationRecord(StrictModel):
         names = [check.name for check in self.checks]
         if len(names) != len(set(names)):
             raise ValueError("duplicate check result names")
-        for name in MANDATORY_CHECKS:
+        for name in mandatory_checks():
             matches = [check for check in self.checks if check.name == name]
             if len(matches) != 1 or not matches[0].required:
                 raise ValueError(f"missing or non-required mandatory check: {name}")

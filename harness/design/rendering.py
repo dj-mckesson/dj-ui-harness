@@ -4,7 +4,7 @@ from pathlib import Path
 
 from pydantic import validate_call
 
-from harness.contracts.checks import MANDATORY_CHECKS
+from harness.contracts.checks import mandatory_checks
 from harness.contracts.core import TaskId, load_task_paths
 from harness.contracts.plan import PlanDocument
 from harness.contracts.scopes import requires_exact_file_scope
@@ -80,7 +80,7 @@ def _render_plan_text(plan: PlanDocument) -> str:
     lines.extend(
         ["", "## Checks", "", "The tests always run. These checks also run:", ""]
     )
-    lines.extend(f"- `{name}` — required" for name in MANDATORY_CHECKS)
+    lines.extend(f"- `{name}` — required" for name in mandatory_checks())
     lines.extend(
         f"- `{name}` — required for a `{plan.task_type}` task"
         for name in plan.task_checks

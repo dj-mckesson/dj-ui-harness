@@ -7,8 +7,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "repo_root=\"$(git rev-parse --show-toplevel)\" && uv --directory \"$repo_root\" run --quiet --no-sync python -m harness.hooks.codex_adapter --repo-root \"$repo_root\"",
-            "commandWindows": "powershell.exe -NoProfile -NonInteractive -Command \"$repoRoot = git rev-parse --show-toplevel; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; & uv --directory $repoRoot run --quiet --no-sync python -m harness.hooks.codex_adapter --repo-root $repoRoot; exit $LASTEXITCODE\"",
+            "command": "repo_root=\"$(git rev-parse --show-toplevel)\" && uv --directory \"$repo_root\" run --project .harness --quiet --no-sync python -m harness.hooks.codex_adapter --repo-root \"$repo_root\"",
+            "commandWindows": "powershell.exe -NoProfile -NonInteractive -Command \"$repoRoot = git rev-parse --show-toplevel; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; & uv --directory $repoRoot run --project .harness --quiet --no-sync python -m harness.hooks.codex_adapter --repo-root $repoRoot; exit $LASTEXITCODE\"",
             "timeout": 30,
             "statusMessage": "Checking protected paths"
           }

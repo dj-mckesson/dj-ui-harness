@@ -4,12 +4,12 @@ from dataclasses import FrozenInstanceError
 from datetime import UTC, datetime
 from importlib import import_module
 from pathlib import Path
-from typing import get_args
 
 import pytest
 from pydantic import ValidationError
 
-from harness.contracts.checks import APPROVED_CHECKS, MANDATORY_CHECKS, CheckName
+from harness.config import load_preset, preset_names, project_config
+from harness.contracts.checks import approved_checks, mandatory_checks
 from harness.contracts.plan import PlanDocument
 from harness.contracts.validation import (
     CandidateValidationRecord,
@@ -19,6 +19,9 @@ from harness.feedback.run_tests import run_tests
 from tests.harness.support import TASK_ID, plan_data, write_approved_plan
 
 runner = import_module("harness.feedback.run_tests")
+APPROVED_CHECKS = approved_checks()
+MANDATORY_CHECKS = mandatory_checks()
+TEST_COMMAND = project_config().tests[0].command
 PASS = {"status": "pass", "exit_code": 0, "stdout": "", "stderr": "", "timed_out": False}
 SKIPPED = {"status": "skipped", "stdout": "", "stderr": "", "timed_out": False}
 
@@ -33,7 +36,10 @@ def _fake_run(
     failing: set[str], calls: list[tuple[str, ...]]
 ) -> Callable[[Path, tuple[str, ...], int], ValidationCommandResult]:
     def run(
-        repo_root: Path, command: tuple[str, ...], timeout: int
+        repo_root: Path,
+        command: tuple[str, ...],
+        timeout: int,
+        env: object = None,
     ) -> ValidationCommandResult:
         calls.append(command)
         failed = any(name in " ".join(command) for name in failing)
@@ -57,19 +63,16 @@ def _record(checks: list[dict[str, object]]) -> dict[str, object]:
     }
 
 
-def test_registry_is_exact_and_frozen() -> None:
-    assert set(APPROVED_CHECKS) == set(get_args(CheckName))
+def test_nextjs_preset_matches_the_original_pricewave_checks() -> None:
+    harness_ruff = ("uv", "run", "--project", ".harness", "--no-sync", "ruff")
     assert MANDATORY_CHECKS == ("ruff-lint", "eslint", "typecheck")
     assert {name: spec.command for name, spec in APPROVED_CHECKS.items()} == {
-        "ruff-lint": ("uv", "run", "--no-sync", "ruff", "check", "--config=.ruff.toml"),
+        "ruff-lint": (*harness_ruff, "check", "--config=.harness/ruff.toml"),
         "ruff-format": (
-            "uv",
-            "run",
-            "--no-sync",
-            "ruff",
+            *harness_ruff,
             "format",
             "--check",
-            "--config=.ruff.toml",
+            "--config=.harness/ruff.toml",
         ),
         "eslint": ("pnpm", "exec", "eslint", "--no-warn-ignored"),
         "prettier": ("pnpm", "exec", "prettier", "--check", "--ignore-unknown"),
@@ -87,12 +90,12 @@ def test_registry_is_exact_and_frozen() -> None:
         "a11y": 600,
     }
     scopes = {
-        "ruff-lint": "changed-python-files",
-        "ruff-format": "changed-python-files",
-        "eslint": "changed-web-files",
-        "prettier": "changed-web-files",
+        "ruff-lint": "changed-files",
+        "ruff-format": "changed-files",
+        "eslint": "changed-files",
+        "prettier": "changed-files",
         "typecheck": "repository",
-        "red-tests": "changed-test-files",
+        "red-tests": "changed-files",
         "browser": "repository",
         "a11y": "repository",
     }
@@ -101,14 +104,24 @@ def test_registry_is_exact_and_frozen() -> None:
         assert spec.timeout == timeouts.get(name, 300)
         assert spec.scope == scopes[name]
         with pytest.raises(FrozenInstanceError):
-            spec.timeout = 1
+            spec.timeout = 1  # type: ignore[misc]
     assert all("." not in spec.command for spec in APPROVED_CHECKS.values())
+    assert TEST_COMMAND == ("pnpm", "test", "--maxWorkers=1")
 
 
-def test_registry_config_exists_in_the_repository() -> None:
-    repo_root = Path(__file__).resolve().parents[2]
-    for name in (".ruff.toml", "eslint.config.mjs", "package.json"):
-        assert (repo_root / name).is_file()
+@pytest.mark.parametrize("preset", preset_names())
+def test_every_preset_loads_and_its_task_types_name_defined_checks(preset: str) -> None:
+    config = load_preset(preset)
+
+    assert config.tests and config.mandatory
+    for names in config.task_types.values():
+        assert set(names) <= set(config.checks)
+        assert not set(names) & set(config.mandatory)
+    assert all(
+        spec.files and spec.failure_pattern
+        for spec in config.checks.values()
+        if spec.kind == "red-tests"
+    )
 
 
 def test_empty_plan_runs_mandatory_checks_and_skips_changed_file_checks_without_changes(
@@ -127,7 +140,7 @@ def test_empty_plan_runs_mandatory_checks_and_skips_changed_file_checks_without_
     )
 
     assert PlanDocument.model_validate(plan_data()).checks == ()
-    assert calls == [runner.TEST_COMMAND, APPROVED_CHECKS["typecheck"].command]
+    assert calls == [TEST_COMMAND, APPROVED_CHECKS["typecheck"].command]
     assert [(c.name, c.required, c.result.status) for c in record.checks] == [
         ("ruff-lint", True, "skipped"),
         ("eslint", True, "skipped"),
@@ -159,7 +172,7 @@ def test_changed_file_checks_use_sorted_changed_paths_after_separator(
     paths = ("--", "-odd.py", "z.py")
     web_paths = ("--", "a.ts", "b.tsx")
     assert calls == [
-        runner.TEST_COMMAND,
+        TEST_COMMAND,
         (*APPROVED_CHECKS["ruff-lint"].command, *paths),
         (*APPROVED_CHECKS["eslint"].command, *web_paths),
         APPROVED_CHECKS["typecheck"].command,
@@ -242,7 +255,10 @@ def test_check_timeout_uses_registry_limit(
     timeouts: list[object] = []
 
     def run(
-        repo_root: Path, command: tuple[str, ...], timeout: int
+        repo_root: Path,
+        command: tuple[str, ...],
+        timeout: int,
+        env: object = None,
     ) -> ValidationCommandResult:
         timeouts.append(timeout)
         if command[:5] == APPROVED_CHECKS["ruff-lint"].command[:5]:
@@ -272,7 +288,7 @@ def test_check_timeout_uses_registry_limit(
 
 @pytest.mark.parametrize("name", MANDATORY_CHECKS)
 @pytest.mark.parametrize("required", [True, False])
-def test_plan_rejects_mandatory_names(name: CheckName, required: bool) -> None:
+def test_plan_rejects_mandatory_names(name: str, required: bool) -> None:
     with pytest.raises(ValidationError, match="mandatory check"):
         PlanDocument.model_validate(plan_data([{"name": name, "required": required}]))
 

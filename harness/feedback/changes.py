@@ -7,6 +7,7 @@ from typing import Literal
 
 from pydantic import BaseModel
 
+from harness.config import project_config
 from harness.contracts.changes import (
     Baseline,
     ChangeRecord,
@@ -30,18 +31,17 @@ from harness.utils.artifact_paths import (
 from harness.utils.atomic import write_bytes
 from harness.utils.digests import sha256_bytes, sha256_file
 
-# Folders that hold the environment or supervisor evidence, not repository content.
-SKIPPED_ROOTS = (".git", ".venv", "node_modules", ".next", "runs")
+# The folders a filesystem scan skips and the check outputs it ignores come from
+# ``harness.toml`` (``[changes]``), on top of built-in defaults for common Python and web tools.
+# Only these stay at the repository root: elsewhere a ``runs`` folder is ordinary content.
+_ROOT_ONLY_DIRS = frozenset({"runs", ".git"})
 
-# Check outputs that the file state ignores. Pytest, ruff, and Next.js write them.
-DECLARED_OUTPUT_DIRECTORIES = (
-    "__pycache__",
-    ".pytest_cache",
-    ".ruff_cache",
-    ".mypy_cache",
-)
-DECLARED_OUTPUT_FILES = (".DS_Store", "next-env.d.ts", "tsconfig.tsbuildinfo")
-DECLARED_OUTPUTS = (*DECLARED_OUTPUT_DIRECTORIES, *DECLARED_OUTPUT_FILES)
+
+def declared_outputs() -> tuple[str, ...]:
+    """Return the check-output folder and file names that the file state ignores."""
+
+    config = project_config()
+    return (*config.output_dirs, *config.output_files)
 
 
 class FileStateError(ValueError):
@@ -65,6 +65,11 @@ def _scan_filesystem(repo_root: Path) -> tuple[dict[str, str], dict[str, str]]:
     """
 
     root = repo_root.resolve()
+    config = project_config()
+    output_dirs = frozenset(config.output_dirs)
+    output_files = frozenset(config.output_files)
+    root_skips = frozenset(config.ignored_dirs)
+    nested_skips = root_skips - _ROOT_ONLY_DIRS
     files: dict[str, str] = {}
     outputs: dict[str, str] = {}
 
@@ -75,14 +80,12 @@ def _scan_filesystem(repo_root: Path) -> tuple[dict[str, str], dict[str, str]]:
         for current, directories, names in os.walk(root, onerror=walk_error):
             current_path = Path(current)
             relative_parent = current_path.relative_to(root)
-            inside_output = any(
-                part in DECLARED_OUTPUT_DIRECTORIES for part in relative_parent.parts
-            )
+            inside_output = any(part in output_dirs for part in relative_parent.parts)
             kept: list[str] = []
             for name in directories:
-                if relative_parent == Path(".") and name in SKIPPED_ROOTS:
+                if relative_parent == Path(".") and name in root_skips:
                     continue
-                if name in {".venv", "node_modules"}:
+                if name in nested_skips:
                     continue
                 if (current_path / name).is_symlink():
                     target = outputs if inside_output else files
@@ -97,7 +100,7 @@ def _scan_filesystem(repo_root: Path) -> tuple[dict[str, str], dict[str, str]]:
                 if not (path.is_symlink() or path.is_file()):
                     continue
                 relative = (relative_parent / name).as_posix()
-                is_output = inside_output or name in DECLARED_OUTPUT_FILES
+                is_output = inside_output or name in output_files
                 (outputs if is_output else files)[relative] = _digest(path)
     except OSError as exc:
         raise FileStateError(f"file state could not be read: {exc}") from exc
@@ -139,7 +142,7 @@ def _scan(
                 "and the baseline used Git"
             )
         files, outputs = _scan_filesystem(root)
-        return files, outputs, DECLARED_OUTPUTS, "filesystem"
+        return files, outputs, declared_outputs(), "filesystem"
 
     files: dict[str, str] = {}
     try:

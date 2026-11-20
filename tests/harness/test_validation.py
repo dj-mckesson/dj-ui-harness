@@ -11,6 +11,7 @@ from unittest.mock import Mock
 
 import pytest
 
+from harness.config import HARNESS_TEST_COMMAND, project_config
 from harness.contracts.changes import ChangeRecord, ChangeSet, DriftRecord, FileDrift
 from harness.contracts.core import load_task_paths
 from harness.contracts.state import RunState
@@ -24,6 +25,7 @@ from harness.utils import atomic as atomic_module
 from tests.harness.support import TASK_ID, plan_data, write_approved_plan
 
 test_runner = import_module("harness.feedback.run_tests")
+TEST_COMMAND = project_config().tests[0].command
 PASS_RESULT = ValidationCommandResult(
     status="pass", exit_code=0, stdout="passed\n", stderr="", timed_out=False
 )
@@ -64,7 +66,7 @@ def test_run_tests_uses_only_fixed_policy_and_persists_pass(
     assert execute.call_count == 2
     execute.assert_any_call(
         repo_root.resolve(),
-        test_runner.TEST_COMMAND,
+        TEST_COMMAND,
         test_runner.TEST_TIMEOUT_SECONDS,
     )
 
@@ -75,7 +77,8 @@ def test_run_tests_uses_only_fixed_policy_and_persists_pass(
         ("harness/gates.py", True),
         ("docs/AGENTS.md", True),
         ("tests/unit/conftest.py", True),
-        (".ruff.toml", True),
+        (".harness/ruff.toml", True),
+        ("pnpm-lock.yaml", True),
         ("src/feature.py", False),
     ],
 )
@@ -114,8 +117,8 @@ def test_routing_adds_harness_tests_when_the_reference_holds_a_protected_file(
     _current_validation_record(repo_root, state)
 
     commands = [call.args[1] for call in execute.call_args_list[:2]]
-    assert commands[0] == test_runner.TEST_COMMAND
-    assert (test_runner.HARNESS_TEST_COMMAND in commands) is harness_tests
+    assert commands[0] == TEST_COMMAND
+    assert (HARNESS_TEST_COMMAND in commands) is harness_tests
 
 
 def test_routing_passes_the_current_round_reference_to_checks(
@@ -172,8 +175,8 @@ def test_routing_passes_the_current_round_reference_to_checks(
         repo_root, state.model_copy(update={"validation_round": 2})
     )
 
-    assert (*test_runner.APPROVED_CHECKS["ruff-lint"].command, "--", "old.py") in calls
-    assert (*test_runner.APPROVED_CHECKS["ruff-lint"].command, "--", "new.py") in calls
+    assert (*project_config().check("ruff-lint").command, "--", "old.py") in calls
+    assert (*project_config().check("ruff-lint").command, "--", "new.py") in calls
 
 
 def test_execute_records_success_and_nonzero_exit(tmp_path: Path) -> None:
